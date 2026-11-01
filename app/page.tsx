@@ -1,7 +1,7 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { lastAssistantMessageIsCompleteWithApprovalResponses } from "ai";
 import type { TriageMessage, LabelPart, SearchPart } from "./tools";
 
@@ -115,7 +115,7 @@ export default function Chat() {
     });
   const [input, setInput] = useState("");
 
-  const handleSubmit = (e) => {
+  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (input.trim()) {
       sendMessage({ text: input });

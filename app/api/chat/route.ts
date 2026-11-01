@@ -38,7 +38,5 @@ export async function POST(req: Request) {
 
     return createUIMessageStreamResponse({
         stream: toUIMessageStream({ stream: result.stream }),
-        onError: (error) =>
-            error instanceof Error ? error.message : "An error occurred.",
     });
 }
