@@ -55,7 +55,7 @@ function LabelPanel({
       );
 
     case "output-denied":
-      return <div>Human denied — label not applied.</div>;
+      return <div>Human denied: label not applied.</div>;
 
     case "output-error":
       return <div className="error">Error: {part.errorText}</div>;
@@ -83,10 +83,7 @@ function SearchPanel({ part }: { part: SearchPart }) {
             hits.map((hit, i) => (
               <p key={i}>
                 <strong>{hit.issue}</strong> → {hit.resolution}
-                <span className="muted">
-                  {" "}
-                  (score {hit.score})
-                </span>
+                <span className="score">score {hit.score}</span>
               </p>
             ))
           )}
@@ -104,6 +101,12 @@ function SearchPanel({ part }: { part: SearchPart }) {
   }
 }
 
+const SAMPLE_TICKETS = [
+  "Preview Builds not appearing on pull requests",
+  "Environment variable missing in Preview but present in Production",
+  "Edge function timing out on long streaming requests",
+];
+
 export default function Chat() {
   const { messages, sendMessage, addToolApprovalResponse } =
     useChat<TriageMessage>({
@@ -112,11 +115,78 @@ export default function Chat() {
     });
   const [input, setInput] = useState("");
 
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (input.trim()) {
+      sendMessage({ text: input });
+      setInput("");
+    }
+  };
+
+  const composer = (
+    <form onSubmit={handleSubmit} className="flex gap-2">
+      <input
+        className="flex-1 p-2 rounded-lg border border-white/10"
+        value={input}
+        onChange={(e) => setInput(e.currentTarget.value)}
+        placeholder="Paste a ticket…"
+      />
+      <button type="submit" className="send" disabled={!input.trim()}>
+        Send
+      </button>
+    </form>
+  );
+
+  if (messages.length === 0) {
+    return (
+      <div className="mx-auto flex flex-col justify-center items-center min-h-[80vh] max-w-md">
+        <div className="hero">
+          <p className="eyebrow">agent demo</p>
+          <h1>Ticket Triage Agent</h1>
+          <p>
+            Paste a ticket. The agent finds the past resolution and proposes a
+            label. Nothing is written until you approve.
+          </p>
+        </div>
+        <div className="mt-6 w-full">
+          <p className="muted">Try a sample ticket:</p>
+          <div className="mt-3 flex flex-col gap-2">
+            {SAMPLE_TICKETS.map((ticket) => (
+              <button
+                key={ticket}
+                type="button"
+                className="sample"
+                onClick={() => sendMessage({ text: ticket })}
+              >
+                {ticket}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-6 w-full">{composer}</div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col w-full max-w-md py-24 mx-auto stretch">
-      {messages?.map((message) => (
+    <div className="flex flex-col w-full max-w-md py-12 mx-auto stretch">
+      <header className="header">
+        <div className="brand">
+          <div>
+            <h1>Ticket Triage Agent</h1>
+            <p>Knowledge-backed triage with human-gated execution</p>
+          </div>
+          <span className="status-chip">
+            <span className="status-dot"></span>
+            gated
+          </span>
+        </div>
+      </header>
+      {messages.map((message) => (
         <div key={message.id} className="whitespace-pre-wrap message">
-          {message.role === "user" ? "User: " : "AI: "}
+          <div className="message-role">
+            {message.role === "user" ? "you" : "agent"}
+          </div>
           {message.parts.map((part, index) => {
             switch (part.type) {
               case "text":
@@ -140,22 +210,9 @@ export default function Chat() {
         </div>
       ))}
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (input.trim()) {
-            sendMessage({ text: input });
-            setInput("");
-          }
-        }}
-      >
-        <input
-          className="fixed bottom-0 w-full max-w-md p-2 mb-8 border rounded"
-          value={input}
-          onChange={(e) => setInput(e.currentTarget.value)}
-          placeholder="Paste a support ticket…"
-        />
-      </form>
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 w-full max-w-md">
+        {composer}
+      </div>
     </div>
   );
 }

@@ -18,17 +18,26 @@ export interface LabelResult {
     appliedAt: string;
 }
 
+const STOPWORDS = new Set([
+    "a", "an", "the", "and", "or", "on", "in", "with", "for", "to", "of",
+    "is", "are", "not", "but", "its", "this", "that", "after", "shows",
+    "show", "appearing", "missing", "present",
+]);
+
 function searchCorpus(query: string): TicketSearchResult[] {
-    const terms = query.toLowerCase().split(/\s+/);
+    const terms = query
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((t) => t.length > 2 && !STOPWORDS.has(t));
     return corpus
         .map((pair) => {
             const text = (pair.issue + " " + pair.resolution).toLowerCase();
             const score = terms.reduce((s, t) => s + (text.includes(t) ? 1 : 0), 0);
             return { ...pair, score };
         })
-        .filter((p) => p.score > 0)
+        .filter((p) => p.score >= 2)
         .sort((a, b) => b.score - a.score)
-        .slice(0, 3);
+        .slice(0, 2);
 }
 
 export const ticketTools = {
@@ -57,12 +66,12 @@ export const ticketToolApproval = {
     applyLabel: "user-approval",
 } as const;
 
-export const SYSTEM_PROMPT = `You are a support triage agent.
+export const SYSTEM_PROMPT = `You are a ticket triage agent.
 For each ticket:
 1. Search the knowledge base EXACTLY ONCE per ticket with a single query covering the whole issue. Do not run multiple searches.
-2. Propose a label via applyLabel (execution requires human approval — do not retry after a denial; report it instead).
+2. Propose a label via applyLabel (execution requires human approval. Do not retry after a denial; report it instead).
 3. Answer briefly: name the matched resolution, state your confidence, and mention the proposed label. Never list raw search results verbatim.
-4. After a human approval decision arrives, report the outcome only: label applied (with the label name) or denied. NEVER ask for approval again, restate the approval question, or re-propose the same label — the decision is already made.`;
+4. After a human approval decision arrives, report the outcome only: label applied (with the label name) or denied. NEVER ask for approval again, restate the approval question, or re-propose the same label, because the decision is already made.`;
 
 export type TriageMessage = UIMessage<unknown, never, InferUITools<typeof ticketTools>>;
 
