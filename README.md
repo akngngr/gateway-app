@@ -1,36 +1,77 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# gateway-app — Support Triage Agent with Human Approval Gates
 
-## Getting Started
+**Live demo:** https://gateway-app-demo.vercel.app/
 
-First, run the development server:
+A Next.js agent that triades support tickets against a knowledge base of past issue→resolution pairs, then proposes a label — **but requires a human decision before any write action executes**. The point of the demo is the governance layer, not the model.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## What it does
+
+1. Paste a support ticket into the chat.
+2. The agent searches the knowledge base (issue/resolution pairs) exactly once.
+3. It proposes a label via the `applyLabel` tool.
+4. **The proposal stops at an approval wall.** Nothing is written until a human approves or denies.
+5. After the decision, the execution resumes: approved → label applied; denied → the agent reports the denial and does not retry.
+
+```
+ticket → search → proposal → ⛔ human gate → execute (approve) / stop (deny) → outcome report
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Architecture
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```
+app/
+  tools.ts            ← the agent contract: schemas, types, approval policy, system prompt
+  lib/corpus.ts       ← knowledge base of issue→resolution pairs
+  api/chat/route.ts   ← thin wiring: streamText + model + tools + step bounds + trace
+  page.tsx            ← chat UI; renders tool lifecycle states (including the approval wall)
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+**`tools.ts` is the single source of truth.** Server and client both derive from it:
 
-## Learn More
+- Tool definitions with zod schemas (`applyLabel` accepts only a closed enum: `bug | known-issue | escalation | needs-info`)
+- Result contracts (`TicketSearchResult`, `LabelResult`)
+- Approval policy (`ticketToolApproval`) — approval is a *property of the tool*, not of the endpoint, so any consumer that imports `ticketTools` inherits the gate automatically
+- `TriageMessage` / `SearchPart` / `LabelPart` — the client's UI types are inferred from the server contract (`InferUITools` + `Extract`), so the UI cannot drift from the tool schema
 
-To learn more about Next.js, take a look at the following resources:
+## Design decisions
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Decision | Why |
+|---|---|
+| Approval-gated write tools | A model with write access to a ticket system should never act without oversight. `toolApproval: { applyLabel: "user-approval" }` intercepts execution; the tool's `execute` runs only after the human approves. |
+| Zod enum on tool inputs | The model has freedom to *choose*, the schema clips the *space of actions*. Deterministic guardrails around probabilistic planning. |
+| `stopWhen: isStepCount(5)` | Bounds the agent loop. Runaway tool chains can't burn cycles or cost. |
+| Typed message parts in the UI | The panels render the tool *state machine* (`input-streaming → approval-requested → approval-responded → output-available / output-denied`). The panels are the source of truth; model prose is commentary. |
+| Per-step trace logging (`onStepFinish`) | Every step — tool calls, finish reason, token usage — is logged and appears in Vercel Function/Runtime Logs in production. Observability is part of the contract, not a debug afterthought. |
+| One shared contract file | Tool schemas, types, and approval policy live in one file consumed by both the route and the UI. No duplicated definitions, no drift. |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## The core idea
 
-## Deploy on Vercel
+Deterministic machinery, bounded model freedom:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- **Deterministic:** tool schemas, execution states, the approval gate, step limits, the knowledge-base ranking
+- **Probabilistic:** only the model's planning and narration
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+When the agent misbehaves (echoing raw results, re-asking after a decision), it is always in the narration layer — never in the gate or the contract. That separation is what makes agent systems production-ready rather than demo-ready.
+
+## Run it
+
+```bash
+npm install
+# set GOOGLE_GENERATIVE_AI_API_KEY in .env.local
+npm run dev
+```
+
+Open http://localhost:3000, paste a ticket (try *"The export button fails with 'invalid input' on a large CSV"*), and watch the approval wall appear.
+
+## Deploying (Vercel)
+
+```bash
+vercel env add GOOGLE_GENERATIVE_AI_API_KEY
+vercel deploy --prod
+```
+
+Trace logs from `onStepFinish` show up in the function's Runtime Logs — the agent's execution trail is visible live in the Vercel dashboard.
+
+## Production path
+
+The demo swaps the in-memory corpus for a real Zendesk/Intercom API by replacing `searchCorpus` and the `ticketId` in `execute` — the tool contract, approval gate, and UI stay unchanged. That's the point of the contract: the model and the backing system can change; the governance layer doesn't.
