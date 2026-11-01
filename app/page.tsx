@@ -1,69 +1,161 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
-  return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+import { useChat } from "@ai-sdk/react";
+import { useState } from "react";
+import { lastAssistantMessageIsCompleteWithApprovalResponses } from "ai";
+import type { TriageMessage, LabelPart, SearchPart } from "./tools";
+
+function LabelPanel({
+  part,
+  onDecision,
+}: {
+  part: LabelPart;
+  onDecision: (approval: { id: string; approved: boolean }) => void;
+}) {
+  switch (part.state) {
+    case "input-streaming":
+      return <div>Proposing label…</div>;
+
+    case "approval-requested":
+      return (
+        <div className="panel panel-approval">
+          <p>
+            Apply <strong>{part.input.label}</strong> to ticket T-1234?
           </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
+            className="approve"
+            onClick={() => onDecision({ id: part.approval.id, approved: true })}
           >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+            Approve
+          </button>
+          <button
+            className="deny"
+            onClick={() =>
+              onDecision({ id: part.approval.id, approved: false })
+            }
           >
-            Documentation
-          </a>
+            Deny
+          </button>
         </div>
-      </main>
+      );
+
+    case "approval-responded":
+      return (
+        <div>
+          Human {part.approval.approved ? "approved" : "denied"} the action.
+        </div>
+      );
+
+    case "output-available":
+      return (
+        <div>
+          Label applied: <strong>{part.output.label}</strong> at{" "}
+          {part.output.appliedAt}
+        </div>
+      );
+
+    case "output-denied":
+      return <div>Human denied — label not applied.</div>;
+
+    case "output-error":
+      return <div className="error">Error: {part.errorText}</div>;
+
+    default:
+      return null;
+  }
+}
+
+function SearchPanel({ part }: { part: SearchPart }) {
+  switch (part.state) {
+    case "input-streaming":
+      return <div>Searching knowledge base…</div>;
+
+    case "input-available":
+      return <div>Searching for "{part.input.query}"…</div>;
+
+    case "output-available": {
+      const hits = part.output; // TicketSearchResult[]
+      return (
+        <div className="panel">
+          {hits.length === 0 ? (
+            <p>No past resolutions found.</p>
+          ) : (
+            hits.map((hit, i) => (
+              <p key={i}>
+                <strong>{hit.issue}</strong> → {hit.resolution}
+                <span className="muted">
+                  {" "}
+                  (score {hit.score})
+                </span>
+              </p>
+            ))
+          )}
+        </div>
+      );
+    }
+
+    case "output-error":
+      return (
+        <div className="error">Search failed: {part.errorText}</div>
+      );
+
+    default:
+      return null;
+  }
+}
+
+export default function Chat() {
+  const { messages, sendMessage, addToolApprovalResponse } =
+    useChat<TriageMessage>({
+      sendAutomaticallyWhen:
+        lastAssistantMessageIsCompleteWithApprovalResponses,
+    });
+  const [input, setInput] = useState("");
+
+  return (
+    <div className="flex flex-col w-full max-w-md py-24 mx-auto stretch">
+      {messages?.map((message) => (
+        <div key={message.id} className="whitespace-pre-wrap message">
+          {message.role === "user" ? "User: " : "AI: "}
+          {message.parts.map((part, index) => {
+            switch (part.type) {
+              case "text":
+                return <div key={`${message.id}-${index}`}>{part.text}</div>;
+
+              case "tool-searchPastTickets":
+                return (
+                  <SearchPanel key={`${message.id}-${index}`} part={part} />
+                );
+              case "tool-applyLabel":
+                return (
+                  <LabelPanel
+                    key={`${message.id}-${index}`}
+                    part={part}
+                    onDecision={addToolApprovalResponse}
+                  />
+                );
+            }
+            return null;
+          })}
+        </div>
+      ))}
+
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (input.trim()) {
+            sendMessage({ text: input });
+            setInput("");
+          }
+        }}
+      >
+        <input
+          className="fixed bottom-0 w-full max-w-md p-2 mb-8 border rounded"
+          value={input}
+          onChange={(e) => setInput(e.currentTarget.value)}
+          placeholder="Paste a support ticket…"
+        />
+      </form>
     </div>
   );
 }
