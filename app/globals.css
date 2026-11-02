@@ -28,6 +28,22 @@ body {
   color: var(--text);
 }
 
+.nav {
+  display: flex;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.nav a {
+  color: var(--muted);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.nav a:hover {
+  color: var(--accent);
+}
+
 input {
   color: var(--text);
   background: var(--surface);

@@ -7,7 +7,7 @@ import {
     UIMessage,
 } from "ai";
 import { google } from "@ai-sdk/google";
-import { ticketTools, ticketToolApproval, SYSTEM_PROMPT } from "../../tools";
+import { ticketTools, ticketToolApproval, SYSTEM_PROMPT } from "@/lib/tools";
 
 export const maxDuration = 30;
 

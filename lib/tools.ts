@@ -1,6 +1,7 @@
 import { tool, InferUITools, UIMessage } from "ai";
 import { z } from "zod";
-import { corpus } from "./lib/corpus";
+import { corpus } from "./corpus";
+import { revalidateTag } from "next/cache";
 
 export type TicketLabel = "bug" | "known-issue" | "escalation" | "needs-info";
 
@@ -52,12 +53,16 @@ export const ticketTools = {
         inputSchema: z.object({
             label: z.enum(["bug", "known-issue", "escalation", "needs-info"]),
         }),
-        execute: async ({ label }): Promise<LabelResult> => ({
-            applied: true,
-            label,
-            ticketId: "T-1234",
-            appliedAt: new Date().toISOString(),
-        }),
+        execute: async ({ label }): Promise<LabelResult> => {
+            revalidateTag("tickets", "max");
+
+            return {
+                applied: true,
+                label,
+                ticketId: "T-1234",
+                appliedAt: new Date().toISOString(),
+            };
+        },
     }),
 };
 
